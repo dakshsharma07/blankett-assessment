@@ -1,0 +1,208 @@
+@import "tailwindcss";
+
+/*
+  Blankett Resolve — visual system
+  Ground: bond paper. Panels: white sheets with hairline rules.
+  Headings and quoted matter: Libre Caslon Text. Interface: Public Sans.
+  Oxford blue is the firm's colour; oxblood is redline ink and nothing else.
+*/
+:root {
+  --paper: #f4f3ef;
+  --sheet: #ffffff;
+  --sheet-2: #f8f7f4;
+  --rule: #dad7d0;
+  --rule-strong: #b9b4a9;
+  --ink: #1c1f26;
+  --ink-2: #4a4f59;
+  --ink-3: #7b8089;
+  --oxford: #12284a;
+  --oxford-2: #1b3a69;
+  --oxford-soft: #e8edf5;
+  --bottle: #1f5f3f;
+  --bottle-soft: #e5f0e9;
+  --ochre: #8a5a0b;
+  --ochre-soft: #f8f0df;
+  --oxblood: #7a1f2b;
+  --oxblood-soft: #f6e9ea;
+  --slate: #315c8e;
+  --slate-soft: #e9eff7;
+}
+
+@theme inline {
+  --color-bg: var(--paper);
+  --color-surface: var(--sheet);
+  --color-surface-2: var(--sheet-2);
+  --color-border: var(--rule);
+  --color-border-strong: var(--rule-strong);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-navy: var(--oxford);
+  --color-navy-2: var(--oxford-2);
+  --color-navy-soft: var(--oxford-soft);
+  --color-green: var(--bottle);
+  --color-green-soft: var(--bottle-soft);
+  --color-amber: var(--ochre);
+  --color-amber-soft: var(--ochre-soft);
+  --color-red: var(--oxblood);
+  --color-red-soft: var(--oxblood-soft);
+  --color-blue: var(--slate);
+  --color-blue-soft: var(--slate-soft);
+
+  --font-sans: var(--font-public-sans), "Public Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: var(--font-caslon), "Libre Caslon Text", Georgia, "Times New Roman", serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Panels are sheets of paper, not pills. */
+  --radius-xs: 2px;
+  --radius-sm: 2px;
+  --radius: 3px;
+  --radius-md: 3px;
+  --radius-lg: 4px;
+  --radius-xl: 6px;
+  --radius-2xl: 8px;
+}
+
+html,
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "tnum" 0;
+}
+
+* {
+  border-color: var(--rule);
+}
+
+::selection {
+  background: var(--oxford-soft);
+}
+
+/* ---------- Typography ---------- */
+
+.page-title,
+.serif {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  letter-spacing: -0.005em;
+}
+
+.page-title {
+  font-size: 28px;
+  line-height: 1.15;
+  color: var(--oxford);
+}
+
+/* Small serif heading with a hairline beneath — the way a brief labels its sections. */
+.heading {
+  font-family: var(--font-serif);
+  font-size: 15px;
+  line-height: 1.3;
+  color: var(--ink);
+}
+
+.figure {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Caption block ----------
+   A legal caption: the parties on the left, the docket details on the right,
+   closed by a double rule. Used at the top of every case page. */
+.caption {
+  border-bottom: 1px solid var(--rule-strong);
+  position: relative;
+  padding-bottom: 18px;
+}
+.caption::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -4px;
+  border-bottom: 1px solid var(--rule-strong);
+}
+
+.caption-table {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  column-gap: 14px;
+  row-gap: 3px;
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+.caption-table dt {
+  color: var(--ink-3);
+}
+.caption-table dd {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Quoted matter ----------
+   Verbatim passages are set as quoted matter in a brief: serif, indented, ruled. */
+.quote {
+  font-family: var(--font-serif);
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--ink);
+  border-left: 2px solid var(--rule-strong);
+  padding: 2px 0 2px 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ---------- Focus ---------- */
+:where(button, a, input, textarea, select, [tabindex]):focus-visible {
+  outline: 2px solid var(--oxford);
+  outline-offset: 2px;
+}
+
+/* ---------- Motion ---------- */
+@keyframes pulse-ring {
+  0% { transform: scale(1); opacity: 0.55; }
+  100% { transform: scale(1.9); opacity: 0; }
+}
+.pulse-ring::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: currentColor;
+  animation: pulse-ring 1.4s ease-out infinite;
+}
+
+@keyframes bar {
+  0%, 100% { transform: scaleY(0.35); }
+  50% { transform: scaleY(1); }
+}
+.eq span {
+  display: inline-block;
+  width: 3px;
+  height: 16px;
+  margin: 0 1.5px;
+  background: currentColor;
+  border-radius: 2px;
+  transform-origin: center;
+  animation: bar 0.9s ease-in-out infinite;
+}
+.eq span:nth-child(2) { animation-delay: 0.15s; }
+.eq span:nth-child(3) { animation-delay: 0.3s; }
+.eq span:nth-child(4) { animation-delay: 0.45s; }
+.eq span:nth-child(5) { animation-delay: 0.6s; }
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+.fade-up { animation: fade-up 0.25s ease-out both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .fade-up,
+  .pulse-ring::before,
+  .eq span {
+    animation: none;
+  }
+  .fade-up { opacity: 1; transform: none; }
+}
