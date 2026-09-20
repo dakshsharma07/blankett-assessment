@@ -63,6 +63,15 @@ Then Issues → **Call their phone**. What makes the call hold up:
 
 Trial limits to remember: only verified numbers, 10 minutes per call, 75 minutes total, and a Twilio notice before the call connects.
 
+## Deploying
+
+The browser experience deploys as an ordinary Next.js app (Vercel works; the route handlers declare `maxDuration` up to 300 s, which analysis needs). Two things to know:
+
+- **Gate it.** There is no authentication, and every upload is a minute of model time on your key. Set `BLANKETT_ACCESS_KEY` and share the link as `https://<host>/?key=<value>`; the first visit sets a thirty-day cookie and the key is dropped from the address. Without a cookie, pages show a locked notice and API routes return 401. Twilio's callbacks (`/api/phone/twiml`, `/status`, `/audio`) stay open, since they carry no cookie.
+- **Phone mode needs one long-lived process.** Call sessions are held in memory, so a serverless deployment loses them between callbacks; the phone button only appears when Twilio is configured, so leave those variables unset on Vercel and demonstrate phone mode locally (or on a single-instance host with `PUBLIC_BASE_URL` set to it).
+
+Environment for a Vercel deploy: `ANTHROPIC_API_KEY`, `BLANKETT_CONVERSE_MODEL=claude-sonnet-5`, `BLANKETT_CONVERSE_THINKING=off`, `BLANKETT_ACCESS_KEY`, and optionally `ELEVENLABS_API_KEY` / `ELEVENLABS_VOICE_ID` for the natural voice.
+
 ## Sample case
 
 Maya Patel · H-1B consular processing · matter SL-2024-0417 at Sharma LLP (responsible attorney: Daksh Sharma — fictional, see above).
