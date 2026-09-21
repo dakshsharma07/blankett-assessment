@@ -1,7 +1,17 @@
 // Minimal Twilio Programmable Voice client (REST + TwiML). No SDK needed for two endpoints.
 
+/**
+ * Phone sessions are held in memory and therefore need a single, long-lived
+ * server. Vercel functions can move requests between instances, so an active
+ * call could lose its session mid-conversation. Keep phone mode local or on a
+ * single-instance host even if Twilio credentials are accidentally configured.
+ */
+export function phoneRuntimeAllowed(): boolean {
+  return process.env.VERCEL !== "1";
+}
+
 export function twilioConfigured(): boolean {
-  return Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_FROM_NUMBER);
+  return phoneRuntimeAllowed() && Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_FROM_NUMBER);
 }
 
 function auth(): string {

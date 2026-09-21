@@ -9,7 +9,7 @@ import { cx } from "@/components/ui";
 
 const STEPS = [
   { href: "/", label: "Upload", n: 1 },
-  { href: "/case", label: "Issues", n: 2 },
+  { href: "/case", label: "Verification", n: 2 },
   { href: "/call", label: "Client call", n: 3 },
   { href: "/review", label: "Review & sign-off", n: 4 },
 ];

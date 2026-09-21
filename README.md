@@ -24,6 +24,7 @@ Open http://localhost:3111. `.env.local` holds the configuration (see `.env.exam
 | --- | --- |
 | `ANTHROPIC_API_KEY` | Analysis, the conversation and the correction package run on Claude. Without it a rule-based engine handles the bundled sample case only (`BLANKETT_FORCE_DEMO=1` forces this even with a key). |
 | `BLANKETT_MODEL` | Analysis and package model (default `claude-opus-5`). |
+| `BLANKETT_ANALYSIS_FAST=on` | Try Opus fast mode for analysis (research preview; needs an account with fast-mode access — otherwise it falls back to standard speed on the first request). |
 | `BLANKETT_CONVERSE_MODEL`, `BLANKETT_CONVERSE_THINKING=off` | Conversation turns are latency-critical; the demo runs them on `claude-sonnet-5` without extended thinking (about 3–4 s to a spoken reply, versus 7 s+ on Opus). Remove both lines to use the analysis model. |
 | `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID` | The agent's voice, in the browser and on the phone. Key permissions needed: Text to Speech, Voices: Read, Speech to Text. Without Voices: Read a fixed premade voice is used; without Speech to Text the browser call transcribes with the device's own recognition. Default voice: Bella (`hpp4J3VqNfWAUOO0d1Us`). |
 | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`, `DEMO_CLIENT_PHONE` | Real phone calls (see below). |
@@ -34,16 +35,15 @@ The interface never names a model or an engine: the same screens run in either m
 
 ## Walkthrough
 
-1. **Open a case file** — drop the documents in, or open the *Patel, Maya* matter from the Matters list (same upload and extraction path). PDFs and DOCX are parsed in memory; originals are never modified. Analysis takes 60–90 s on the sample case; every issue cites the verbatim passages that caused it.
-2. **Issues** — the case opens with a caption block: the matter, attorney, employer, and counts of issues, evidence gaps and affected fields. Each issue shows why it was flagged, what needs to be settled, the source passages (click a file name to see the passage highlighted in the document), the downstream fields it changes, and *On the call*: the objective, the opening question and the fallback if the client is unsure. Four issues appear for the sample case: an employment-timeline conflict (with a possible explanation found in the employer letter), a four-month address gap, an omitted UK trip, and a low-severity job-title mismatch the attorney can settle from the file.
+1. **Open a case file** — drop the documents in, or open the *Patel, Maya* matter from the Matters list (same upload and extraction path). PDFs and DOCX are parsed in memory; originals are never modified. Analysis runs as three parallel requests (facts, issues and plan, completeness) and takes about 50 s on the sample case; every issue cites the verbatim passages that caused it.
+2. **Issues** — the case opens with a caption block: the matter, attorney, employer, and counts of issues, evidence gaps and affected fields. Each issue shows why it was flagged, what needs to be settled, the source passages (click a file name to see the passage highlighted in the document), the downstream fields it changes, and *On the call*: the objective, the opening question and the fallback if the client is unsure. Four issues appear for the sample case: an employment-timeline conflict (with a possible explanation found in the employer letter), a four-month address gap, an omitted UK trip, and a low-severity job-title mismatch the attorney can settle from the file. The *On the call* tab is the agenda: the attorney can reorder it, remove items, or add a question of their own before dialing.
 3. **Resolution plan** — the agent's ordered plan for closing every issue, with a second-order follow-up for each (how the contractor period was paid; whether the move was reported), and every field that will change across the DS-160, the intake questionnaire and the case record.
 4. **Completeness** — what a complete H‑1B consular file should contain, judged present / missing / unclear against the upload. Gaps the client can speak to are raised at the end of the call; the rest become the attorney's evidence-to-collect list.
 5. **Call the client** — one click starts the voice session; there is no pre-call screen. The agent opens with a short, friendly greeting on behalf of the attorney ("Hi, is this Maya? I'm calling on behalf of Daksh Sharma at Sharma LLP — I have a few quick questions about your H-1B file, if you have a couple of minutes?") and only starts on the issues once the client says it is a good time. It speaks, listens and adapts to what you say as the client (you can also type). An **Agent reasoning** panel shows, for every turn, what the client said, which document it was checked against, what was concluded and why the next question follows — the model produces this trace as part of its structured output, so it is the real basis for the turn, not a narration added afterwards. Every transcript turn keeps it under *Why the agent said this*. Try: *"I was contracting first"*, *"I was staying with my cousin in Atlanta"*, *"honestly I'm not sure"*, or deny the trip and hear the agent cite the passport stamp.
 6. **Call their phone** — the second button on the Issues page dials the client's real number; the same agent runs the call and the screen mirrors it live.
-7. **Evidence mid-call** — when the agent asks about the address gap, say the client will send the sublease, then click *Client sent a document* (or *Attach sublease agreement received from client*). The agent reads it, records the address and dates from it, closes the issue and returns to its question.
-8. **Correction package** — end the call to generate it: for each issue, existing evidence / client clarification / proposed resolution, with rationale and source passages. Unresolved items stay unresolved.
-9. **Case record redline** — every affected field, before → after, grouped by document, tied to the correction it came from.
-10. **Sign off** — accept, edit or reject each item, attest, sign your name and approve. A summary email for the reviewing attorney is drafted from the same package.
+7. **Correction package** — end the call to generate it: for each issue, existing evidence / client clarification / proposed resolution, with rationale and source passages. Unresolved items stay unresolved.
+8. **Case record redline** — every affected field, before → after, grouped by document, tied to the correction it came from.
+9. **Sign off** — accept, edit or reject each item, attest, sign your name and approve. A summary email for the reviewing attorney is drafted from the same package.
 
 ## Phone-call mode
 
@@ -85,7 +85,6 @@ The documents are laid out the way the real paperwork is laid out, not written f
 | `Employment_Verification_Letter_Northstar.pdf` | Contractor from Jan 15, full-time from Mar 1 — the explanation |
 | `Travel_History_Record_Maya_Patel.pdf` | A UK trip (Feb 14–21, 2024) with stamp detail, absent from the DS-160 |
 | `Client_Intake_Questionnaire_Maya_Patel.docx` | Client's own answers: "no other addresses", only Canada and India |
-| `during-call/Sublease_Agreement_415_Ponce_de_Leon.pdf` | The document the client sends mid-call to close the address gap |
 
 Regenerate the documents with `npm run docs:generate` (pdfkit + docx; uses the system's Georgia / Times New Roman / Arial when present, PDFKit's built-in fonts otherwise). Run the no-key pipeline end to end from the terminal with `npm run smoke`.
 

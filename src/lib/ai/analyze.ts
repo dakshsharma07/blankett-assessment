@@ -1,4 +1,6 @@
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
+import { z } from "zod";
+import Anthropic from "@anthropic-ai/sdk";
 import { client, MODEL } from "@/lib/ai/client";
 import { AnalysisSchema } from "@/lib/ai/schemas";
 import { resolveEvidence } from "@/lib/evidence";
@@ -9,7 +11,7 @@ const SYSTEM = `You are the case-analysis engine of a case-resolution system use
 You receive the extracted text of every document in one case. Treat them as ONE case, not separate documents.
 
 Your job:
-1. Extract the case-relevant facts (identity, employment, addresses, travel, education) with the exact source passage for each.
+1. Extract the case-relevant facts (identity, employment, addresses, travel, education) with the exact source passage for each. Under identity, include the client's contact details when the file has them (label them "Phone" and "Email"), since the case assistant uses them to reach the client.
 2. Compare facts ACROSS documents and identify where the case does not reconcile:
    - conflict: two sources state different values for the same fact
    - gap: a required continuous history (addresses, employment) has a missing interval
@@ -44,28 +46,64 @@ Rules:
 - requiresClientContact=true only when the client is the only source that can settle it. If the file already answers it (an authoritative employer letter, a degree listed on a resume that simply needs to be copied over), set it false and leave suggestedQuestion empty.
 - suggestedQuestion must be a single spoken question of at most two sentences of context plus one question. Do not ask for documents or attachments on the call.`;
 
+// The three parts of the analysis are independent given the documents, so they run as three
+// parallel requests (each on fast mode); the wall clock is the longest part, not the sum.
+const FactsSchema = AnalysisSchema.pick({ caseSummary: true, facts: true });
+const IssuesSchema = AnalysisSchema.pick({ issues: true, resolutionPlan: true });
+const ChecklistSchema = AnalysisSchema.pick({ evidenceChecklist: true });
+
+// Fast mode (Opus only, research preview) is tried when enabled; an account without access gets a
+// 429 with a zero fast-mode limit, after which every request falls back to standard speed.
+let fast = process.env.BLANKETT_ANALYSIS_FAST === "on";
+
+async function part<T extends z.ZodType>(label: string, schema: T, corpus: string, docCount: number, task: string): Promise<z.infer<T>> {
+  const started = Date.now();
+  const useFast = fast;
+  const stream = client().beta.messages.stream({
+    model: MODEL,
+    max_tokens: 32000,
+    thinking: { type: "adaptive" },
+    ...(useFast ? { speed: "fast" as const, betas: ["fast-mode-2026-02-01"] } : {}),
+    output_config: { effort: (process.env.BLANKETT_ANALYSIS_EFFORT as "low" | "medium" | "high") || "low", format: zodOutputFormat(schema) },
+    system: SYSTEM,
+    messages: [
+      {
+        role: "user",
+        content: `Analyze the following ${docCount} documents as one immigration case.\n\nFor this request, produce only: ${task}\n\n${corpus}`,
+      },
+    ],
+  });
+  let msg: Awaited<ReturnType<typeof stream.finalMessage>>;
+  try {
+    msg = await stream.finalMessage();
+  } catch (e) {
+    if (useFast && e instanceof Anthropic.RateLimitError && /fast mode/i.test(e.message)) {
+      fast = false;
+      console.log(`[analyze/${label}] fast mode unavailable on this account; using standard speed`);
+      return part(label, schema, corpus, docCount, task);
+    }
+    throw e;
+  }
+  console.log(`[analyze/${label}] ${MODEL}${useFast ? " fast" : ""}: ${msg.usage.input_tokens} in, ${msg.usage.output_tokens} out, ${((Date.now() - started) / 1000).toFixed(1)}s`);
+  if (msg.stop_reason === "refusal") throw new Error("The model declined to analyze these documents.");
+  const out = msg.parsed_output;
+  if (!out) throw new Error("The model response could not be parsed into a case analysis.");
+  return out;
+}
+
 export async function liveAnalyze(docs: CaseDocument[]): Promise<AnalysisResult> {
   const corpus = docs
     .map((d) => `<document name="${d.name}" kind="${d.kind}">\n${d.text}\n</document>`)
     .join("\n\n");
 
-  const stream = client().messages.stream({
-    model: MODEL,
-    max_tokens: 32000,
-    thinking: { type: "adaptive" },
-    output_config: { effort: (process.env.BLANKETT_ANALYSIS_EFFORT as "low" | "medium" | "high") || "low", format: zodOutputFormat(AnalysisSchema) },
-    system: SYSTEM,
-    messages: [
-      {
-        role: "user",
-        content: `Analyze the following ${docs.length} documents as one immigration case.\n\n${corpus}`,
-      },
-    ],
-  });
-  const msg = await stream.finalMessage();
-  if (msg.stop_reason === "refusal") throw new Error("The model declined to analyze these documents.");
-  const out = msg.parsed_output;
-  if (!out) throw new Error("The model response could not be parsed into a case analysis.");
+  const started = Date.now();
+  const [factsPart, issuesPart, checklistPart] = await Promise.all([
+    part("facts", FactsSchema, corpus, docs.length, "the case summary and the extracted facts (step 1). Keep to 15-25 facts: the ones a reconciliation depends on (identity and contact details, status, petition, each employment with dates and title, each address with dates, each trip, each degree, salary). One fact per distinct statement; when two documents agree, cite one and do not repeat it."),
+    part("issues", IssuesSchema, corpus, docs.length, "the issues and the resolution plan (steps 2-5 and 7). Extract the facts internally but do not output them."),
+    part("checklist", ChecklistSchema, corpus, docs.length, "the evidence checklist (step 6)."),
+  ]);
+  console.log(`[analyze] all parts in ${((Date.now() - started) / 1000).toFixed(1)}s`);
+  const out = { ...factsPart, ...issuesPart, ...checklistPart };
 
   const facts = out.facts.map((f, i) => ({
     id: `f${i + 1}`,

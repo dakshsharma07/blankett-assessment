@@ -37,6 +37,27 @@ export function EvidenceCard({ e, compact = false }: { e: Evidence; compact?: bo
   );
 }
 
+/** A one-line source reference: file name and section. Click opens the document with the passage highlighted. */
+export function EvidenceLink({ e, className }: { e: Evidence; className?: string }) {
+  const [open, setOpen] = useState(false);
+  const doc = useCase((s) => s.documents.find((d) => d.id === e.docId));
+  const short = e.docName.replace(/\.(pdf|docx|txt)$/i, "").replace(/_/g, " ");
+  return (
+    <span className={cx("inline-flex min-w-0 items-center gap-1.5 text-[12px]", className)}>
+      {docIcon(doc?.kind ?? "pdf")}
+      <button
+        onClick={() => doc && setOpen(true)}
+        className={cx("truncate text-ink-2", doc && "hover:text-navy hover:underline")}
+        title={doc ? `“${e.quote}”` : "Document not found"}
+      >
+        {short}
+        {e.section && <span className="text-ink-3"> · {e.section}</span>}
+      </button>
+      {open && doc && <DocumentViewer doc={doc} highlight={e.quote} onClose={() => setOpen(false)} />}
+    </span>
+  );
+}
+
 export function DocumentViewer({ doc, highlight, onClose }: { doc: CaseDocument; highlight?: string; onClose: () => void }) {
   const url = originalUrl(doc);
   const canRender = url !== null && doc.kind === "pdf";

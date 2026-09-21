@@ -2,10 +2,10 @@
 
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Mic, MicOff, PhoneCall, PhoneOff, Send, Volume2, VolumeX, ArrowRight, RotateCcw, AlertCircle, Bot, User, Headphones, Keyboard, Paperclip, FileText, Smartphone, Globe, BrainCircuit, ChevronDown } from "lucide-react";
+import { Mic, MicOff, PhoneCall, PhoneOff, Send, Volume2, VolumeX, ArrowRight, RotateCcw, AlertCircle, Bot, User, Headphones, Keyboard, Smartphone, Globe, BrainCircuit, ChevronDown } from "lucide-react";
 import { useCase, newId } from "@/lib/store";
-import { registerOriginals } from "@/lib/originals";
-import type { CaseDocument, Clarification, ConverseResponse, Issue, TranscriptTurn } from "@/lib/types";
+import { clientPhoneFromFacts } from "@/lib/contact";
+import type { Clarification, ConverseResponse, Issue, TranscriptTurn } from "@/lib/types";
 import { primeVoices, Recognizer, RemoteRecorder, speak, speakRemote, stopRemoteSpeaking, stopSpeaking, supportsSTT, supportsTTS } from "@/lib/voice";
 import { Button, Card, Chip, ClarificationStatusChip, SectionLabel, Spinner, cx } from "@/components/ui";
 
@@ -61,7 +61,6 @@ function CallSession() {
   const [error, setError] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [generating, setGenerating] = useState(false);
-  const [uploading, setUploading] = useState(false);
   const [phoneSession, setPhoneSession] = useState<string | null>(null);
   const [reasoning, setReasoning] = useState<string[]>([]);
   const [showReasoning, setShowReasoning] = useState(true);
@@ -71,8 +70,6 @@ function CallSession() {
   // Read via the router (not window.location, which still points at the previous page during the first render).
   const [startMode, setStartMode] = useState<"browser" | "phone">(() => (searchParams.get("start") === "phone" ? "phone" : "browser"));
   const phoneSeen = useRef<Set<string>>(new Set());
-  const fileRef = useRef<HTMLInputElement>(null);
-  const documents = useCase((s) => s.documents);
 
   const recognizer = useRef<Recognizer | null>(null);
   const recorder = useRef<RemoteRecorder | null>(null);
@@ -285,41 +282,6 @@ function CallSession() {
     clientSaidRef.current = clientSaid;
   }, [clientSaid]);
 
-  /** The client sends a document mid-call: parse it, add it to the file, and let the agent react. */
-  const receiveDocument = async (file: File) => {
-    if (phaseRef.current !== "active" || busyRef.current) return;
-    setUploading(true);
-    setError(null);
-    try {
-      stopListening();
-      stopSpeaking();
-      stopRemoteSpeaking();
-      const fd = new FormData();
-      fd.append("files", file, file.name);
-      const res = await fetch("/api/parse", { method: "POST", body: fd });
-      const data = (await res.json()) as { documents: CaseDocument[]; errors: string[] };
-      if (!res.ok || !data.documents?.length) throw new Error(data.errors?.[0] || "Could not read that document.");
-      const doc = data.documents[0];
-      registerOriginals([file], [doc]);
-      const st = useCase.getState();
-      st.addCallDocument(doc);
-      st.appendTranscript({ id: newId("t"), role: "system", text: `Client sent a document: ${doc.name} (${doc.kind.toUpperCase()}, ${doc.text.split(/\s+/).length} words)`, ts: new Date().toISOString() });
-      await agentTurn(null, { type: "document_received", docName: doc.name, excerpt: doc.text.slice(0, 6000) });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const isSampleCase = documents.some((d) => /DS-160_Application_Summary_Maya_Patel/i.test(d.name));
-  const receiveSample = async () => {
-    const name = "Sublease_Agreement_415_Ponce_de_Leon.pdf";
-    const r = await fetch(`/demo-documents/during-call/${name}`);
-    if (!r.ok) return setError("Sample sublease not found.");
-    await receiveDocument(new File([await r.blob()], name, { type: "application/pdf" }));
-  };
-
   const publicOk = !!engine?.phone.publicUrl || (typeof location !== "undefined" && !/^(localhost|127\.0\.0\.1)$/.test(location.hostname));
 
   /** Place a real phone call; the server runs the same conversation engine and we mirror its state. */
@@ -333,7 +295,7 @@ function CallSession() {
       const res = await fetch("/api/phone/call", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ caseSummary: st.analysis!.caseSummary, issues: st.analysis!.issues, plan: st.analysis!.resolutionPlan ?? [], evidenceChecklist: st.analysis!.evidenceChecklist ?? [], to: phoneTo || undefined }),
+        body: JSON.stringify({ caseSummary: st.analysis!.caseSummary, issues: st.analysis!.issues, plan: st.analysis!.resolutionPlan ?? [], evidenceChecklist: st.analysis!.evidenceChecklist ?? [], to: phoneTo || clientPhoneFromFacts(st.analysis!.facts)?.e164 || undefined }),
       });
       const data = (await res.json()) as { sessionId?: string; to?: string; error?: string };
       if (!res.ok || !data.sessionId) throw new Error(data.error || "Could not place the call.");
@@ -488,6 +450,8 @@ function CallSession() {
   if (!analysis) return null;
 
   const clientName = analysis.caseSummary.clientName;
+  const firstName = clientName.split(" ")[0];
+  const filePhone = clientPhoneFromFacts(analysis.facts);
   const mm = String(Math.floor(elapsed / 60)).padStart(2, "0");
   const ss = String(elapsed % 60).padStart(2, "0");
   const live = engine?.live ?? false;
@@ -499,7 +463,12 @@ function CallSession() {
         <Card>
           <div className="flex items-center gap-3">
             {!error && <Spinner className="text-navy" />}
-            <div className="serif text-[17px] text-ink">{startMode === "phone" ? `Calling ${clientName}` : `Starting the call with ${clientName}`}</div>
+            <div>
+              <div className="serif text-[17px] text-ink">{startMode === "phone" ? `Calling ${clientName}` : `Starting the call with ${clientName}`}</div>
+              {startMode === "phone" && filePhone && (
+                <div className="mt-0.5 text-[12.5px] text-ink-2">Dialing the number on file, from {filePhone.docName.replace(/\.(pdf|docx|txt)$/i, "").replace(/_/g, " ")}</div>
+              )}
+            </div>
           </div>
           {error && (
             <div className="mt-3 flex items-start gap-2 rounded-md border border-red/30 bg-red-soft px-3 py-2 text-[12.5px] text-red">
@@ -552,7 +521,7 @@ function CallSession() {
               {(phase === "active" || phase === "phone") && <span className="pulse-ring absolute inset-0 text-green" />}
             </div>
             <div className="serif text-[15px] text-ink">
-              {phase === "active" ? "Live voice session" : phase === "phone" ? `Phone call, ${phoneTo}` : "Call ended"} with {clientName}
+              {phase === "active" ? "Live voice session" : phase === "phone" ? "Phone call" : "Call ended"} with {clientName}
             </div>
             <span className="figure text-[12.5px] text-ink-3">
               {mm}:{ss}
@@ -577,7 +546,7 @@ function CallSession() {
                 <span /><span /><span /><span /><span />
               </div>
             )}
-            <p className="serif mt-4 w-full max-w-[58ch] text-[19px] leading-relaxed text-ink">{currentSpeech || (phase === "ended" ? "The session has ended." : phase === "phone" ? `Calling ${phoneTo}…` : "Connecting…")}</p>
+            <p className="serif mt-4 w-full max-w-[58ch] text-[19px] leading-relaxed text-ink">{currentSpeech || (phase === "ended" ? "The session has ended." : phase === "phone" ? `Calling ${firstName}…` : "Connecting…")}</p>
             {interim && <p className="serif mt-4 w-full max-w-[58ch] text-[15px] italic text-ink-3">“{interim}…”</p>}
             {focusIssueId && (phase === "active" || phase === "phone") && (
               <div className="mt-4">
@@ -664,36 +633,11 @@ function CallSession() {
                     <Send size={16} />
                   </button>
                 </form>
-                <input
-                  ref={fileRef}
-                  type="file"
-                  accept=".pdf,.docx,.txt"
-                  className="hidden"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) void receiveDocument(f);
-                    e.target.value = "";
-                  }}
-                />
-                <Button
-                  variant="secondary"
-                  onClick={() => fileRef.current?.click()}
-                  disabled={uploading || agentState === "thinking"}
-                  icon={uploading ? <Spinner /> : <Paperclip size={15} />}
-                  title="Add a document the client sends during the call; the agent reads it immediately"
-                >
-                  {uploading ? "Reading…" : "Client sent a document"}
-                </Button>
                 <Button variant="danger" onClick={() => endCall(true)} icon={<PhoneOff size={15} />}>
                   End call
                 </Button>
               </div>
               <div className="mt-3 flex flex-wrap items-center gap-4 text-[12px] text-ink-3">
-                {isSampleCase && !documents.some((d) => d.receivedDuringCall) && (
-                  <button onClick={() => void receiveSample()} disabled={uploading || agentState === "thinking"} className="inline-flex items-center gap-1.5 text-navy hover:underline disabled:opacity-50">
-                    <Paperclip size={12} /> Attach sublease agreement received from client
-                  </button>
-                )}
                 <details className="relative ml-auto">
                   <summary className="flex cursor-pointer select-none items-center gap-1.5 hover:text-ink">
                     <Headphones size={13} /> Audio
@@ -762,22 +706,6 @@ function CallSession() {
 
       {/* Agent activity + issue tracker */}
       <div className="space-y-3">
-        {documents.some((d) => d.receivedDuringCall) && (
-          <Card padded={false}>
-            <div className="border-b border-border px-4 py-2.5">
-              <SectionLabel>Received during the call</SectionLabel>
-            </div>
-            <ul className="divide-y divide-border">
-              {documents.filter((d) => d.receivedDuringCall).map((d) => (
-                <li key={d.id} className="flex items-center gap-2 px-4 py-2 text-[12.5px]">
-                  <FileText size={13} className="text-navy" />
-                  <span className="truncate">{d.name}</span>
-                  <span className="ml-auto shrink-0 text-[11px] text-ink-3">{d.kind.toUpperCase()}</span>
-                </li>
-              ))}
-            </ul>
-          </Card>
-        )}
         <Card padded={false}>
           <div className="border-b border-border px-4 py-2.5">
             <SectionLabel>Issues on this call</SectionLabel>

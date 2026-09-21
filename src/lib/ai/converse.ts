@@ -25,12 +25,12 @@ function buildSystem(req: ConverseRequest): string {
         i.possibleExplanation ? `  possible explanation already in the file: ${i.possibleExplanation}` : null,
         `  what we need to learn: ${i.needToKnow}`,
         step?.objective ? `  objective: ${step.objective}` : null,
-        `  opening question: ${step?.askFirst || i.suggestedQuestion}`,
+        `  opening question: ${step?.askFirst || i.suggestedQuestion || "(none scripted — phrase a natural question from the objective)"}`,
         step?.ifUnclear ? `  if the client is unsure or disagrees: ${step.ifUnclear}` : null,
         step?.documentsThatWouldHelp?.length ? `  documents that would settle it (mention only if the client offers or cannot answer): ${step.documentsThatWouldHelp.join("; ")}` : null,
         step?.fieldsAffected?.length ? `  fields this will change: ${step.fieldsAffected.map((f) => `${f.document} › ${f.field}`).join("; ")}` : null,
         step?.followUps?.length ? `  follow-ups once settled (ask if still relevant, one at a time): ${step.followUps.map((q, k) => `(${k + 1}) ${q}`).join(" ")}` : null,
-        `  evidence:\n${ev}`,
+        ev ? `  evidence:\n${ev}` : `  evidence: none — the attorney added this item before the call; ask it plainly and record what the client says`,
       ]
         .filter(Boolean)
         .join("\n");

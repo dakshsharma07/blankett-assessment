@@ -11,7 +11,9 @@ import type {
   EmailDraft,
   EngineStatus,
   EvidenceRequest,
+  Issue,
   PackageResponse,
+  PlanStep,
   RecordChange,
   TranscriptTurn,
 } from "@/lib/types";
@@ -47,6 +49,11 @@ interface CaseStore {
   addCallDocument: (doc: CaseDocument) => void;
   removeDocument: (id: string) => void;
   setAnalysis: (a: AnalysisResult | null) => void;
+  /** Adds an attorney-written item to the call agenda; the agent works through it like any other issue. */
+  addCallItem: (text: string) => void;
+  removeCallItem: (issueId: string) => void;
+  /** Move an item one place earlier (-1) or later (+1) in the call order. */
+  moveCallItem: (issueId: string, dir: -1 | 1) => void;
   upsertClarification: (c: Clarification) => void;
   appendTranscript: (t: TranscriptTurn) => void;
   setCallState: (s: CallState) => void;
@@ -90,6 +97,48 @@ export const useCase = create<CaseStore>()(
       addCallDocument: (doc) => set((s) => ({ documents: [...s.documents.filter((d) => d.name !== doc.name), { ...doc, receivedDuringCall: true }] })),
       removeDocument: (id) => set((s) => ({ ...empty, documents: s.documents.filter((d) => d.id !== id) })),
       setAnalysis: (analysis) => set({ analysis, clarifications: [], transcript: [], callState: "idle", pkg: null, corrections: [], email: null, signOff: null }),
+      addCallItem: (text) =>
+        set((s) => {
+          if (!s.analysis) return {};
+          const title = text.trim();
+          if (!title) return {};
+          const id = `attorney-${Date.now().toString(36)}`;
+          const issue: Issue = {
+            id,
+            title,
+            kind: "clarification",
+            severity: "medium",
+            summary: "Added by the attorney before the call.",
+            whyFlagged: "Added by the attorney before the call.",
+            evidence: [],
+            needToKnow: title,
+            suggestedQuestion: "",
+            requiresClientContact: true,
+          };
+          const step: PlanStep = { issueId: id, approach: "ask_client", objective: title, askFirst: "", ifUnclear: "", documentsThatWouldHelp: [], fieldsAffected: [], followUps: [] };
+          return { analysis: { ...s.analysis, issues: [...s.analysis.issues, issue], resolutionPlan: [...(s.analysis.resolutionPlan ?? []), step] } };
+        }),
+      removeCallItem: (issueId) =>
+        set((s) => {
+          if (!s.analysis) return {};
+          return {
+            analysis: { ...s.analysis, issues: s.analysis.issues.filter((i) => i.id !== issueId), resolutionPlan: (s.analysis.resolutionPlan ?? []).filter((p) => p.issueId !== issueId) },
+            clarifications: s.clarifications.filter((c) => c.issueId !== issueId),
+          };
+        }),
+      moveCallItem: (issueId, dir) =>
+        set((s) => {
+          if (!s.analysis) return {};
+          const plan = [...(s.analysis.resolutionPlan ?? [])];
+          const contact = new Set(s.analysis.issues.filter((i) => i.requiresClientContact).map((i) => i.id));
+          const onCall = plan.map((p, i) => (contact.has(p.issueId) ? i : -1)).filter((i) => i >= 0);
+          const at = onCall.findIndex((i) => plan[i].issueId === issueId);
+          const to = at + dir;
+          if (at < 0 || to < 0 || to >= onCall.length) return {};
+          const [a, b] = [onCall[at], onCall[to]];
+          [plan[a], plan[b]] = [plan[b], plan[a]];
+          return { analysis: { ...s.analysis, resolutionPlan: plan } };
+        }),
       upsertClarification: (c) =>
         set((s) => ({ clarifications: [...s.clarifications.filter((x) => x.issueId !== c.issueId), c] })),
       appendTranscript: (t) => set((s) => ({ transcript: [...s.transcript, t] })),
